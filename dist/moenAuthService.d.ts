@@ -1,6 +1,6 @@
-export declare const MOEN_OAUTH_URL = "https://4j1gkf0vji.execute-api.us-east-2.amazonaws.com/prod/v1/oauth2/token";
+export declare const MOEN_OAUTH_URL = "https://api.prod.iot.moen.com/v1/oauth2/token";
 export declare const MOEN_OAUTH_CLIENT_ID = "6qn9pep31dglq6ed4fvlq6rp5t";
-export declare const MOEN_USER_AGENT = "Smartwater-iOS-prod-3.45.0";
+export declare const MOEN_USER_AGENT = "Flo-Android";
 type Fetch = typeof globalThis.fetch;
 interface MoenAuthOptions {
     fetch?: Fetch;

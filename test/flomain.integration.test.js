@@ -67,17 +67,12 @@ test('legacy valve command delegates to FloApiClient and emits the existing even
   assert.equal((await event).device, flo.flo_devices[0]);
 });
 
-test('legacy discovery expands SSO locations before loading devices', async () => {
-  const paths = [];
+test('legacy discovery loads devices from migrated-account locations', async () => {
   const client = {
+    async getLocations() {
+      return [{ id: 'location-1', devices: [{ id: 'device-1' }] }];
+    },
     async get(path) {
-      paths.push(path);
-      if (path === '/users/me?expand=locations') {
-        return { locations: [{ id: 'location-1' }] };
-      }
-      if (path === '/locations/location-1?expand=devices') {
-        return { devices: [{ id: 'device-1' }] };
-      }
       if (path.startsWith('/water/consumption')) {
         return { aggregations: { sumTotalGallonsConsumed: 12.5 } };
       }
@@ -112,8 +107,5 @@ test('legacy discovery expands SSO locations before loading devices', async () =
   assert.equal(await flo.discoverDevices(), true);
   assert.equal(flo.flo_devices.length, 1);
   assert.equal(flo.flo_devices[0].name, 'Main Valve');
-  assert.deepEqual(paths.slice(0, 2), [
-    '/users/me?expand=locations',
-    '/locations/location-1?expand=devices',
-  ]);
+  assert.deepEqual(flo.flo_locations, ['location-1']);
 });

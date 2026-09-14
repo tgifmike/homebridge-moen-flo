@@ -36,8 +36,26 @@ test('logs in through Moen SSO and returns its access token', async () => {
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     username: 'person@example.com',
     password: 'secret',
+    grant_type: 'client_credentials',
     client_id: MOEN_OAUTH_CLIENT_ID,
   });
+});
+
+test('accepts a string token expiry returned by the Moen gateway', async () => {
+  let now = 1_000_000;
+  let calls = 0;
+  const auth = new MoenAuthService('person@example.com', 'secret', {
+    now: () => now,
+    fetch: async () => {
+      calls += 1;
+      return jsonResponse({ token: { access_token: `access-${calls}`, expires_in: '3600' } });
+    },
+  });
+
+  assert.equal(await auth.getAccessToken(), 'access-1');
+  now += 1_000;
+  assert.equal(await auth.getAccessToken(), 'access-1');
+  assert.equal(calls, 1);
 });
 
 test('refreshes an expired token and retains a refresh token omitted by refresh response', async () => {
@@ -99,4 +117,30 @@ test('setValve posts the Flo v2 valve target payload', async () => {
   assert.equal(calls[0].url, 'https://api-gw.meetflo.com/api/v2/devices/device%2F1');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer access-1');
   assert.deepEqual(JSON.parse(calls[0].init.body), { valve: { target: 'closed' } });
+});
+
+test('discovers migrated-account locations through Moen sync', async () => {
+  const urls = [];
+  const auth = { async getAccessToken() { return 'access-1'; } };
+  const client = new FloApiClient(auth, async (url) => {
+    urls.push(url);
+    if (url.endsWith('/moen/sync/me')) {
+      return jsonResponse({ id: 'user/1' });
+    }
+    if (url.includes('/locations?')) {
+      return jsonResponse({ items: [{ id: 'location-1', devices: [{ id: 'device-1' }] }] });
+    }
+    if (url.endsWith('/devices/device-1')) {
+      return jsonResponse({ id: 'device-1', deviceType: 'flo_device_v2' });
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  });
+
+  assert.deepEqual(await client.discoverDevices(), [
+    { id: 'device-1', deviceType: 'flo_device_v2' },
+  ]);
+  assert.equal(
+    urls[1],
+    'https://api-gw.meetflo.com/api/v2/locations?userId=user%2F1&expand=devices',
+  );
 });

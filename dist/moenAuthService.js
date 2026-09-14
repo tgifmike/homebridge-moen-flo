@@ -1,9 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MoenAuthService = exports.MoenAuthError = exports.MOEN_USER_AGENT = exports.MOEN_OAUTH_CLIENT_ID = exports.MOEN_OAUTH_URL = void 0;
-exports.MOEN_OAUTH_URL = 'https://4j1gkf0vji.execute-api.us-east-2.amazonaws.com/prod/v1/oauth2/token';
+exports.MOEN_OAUTH_URL = 'https://api.prod.iot.moen.com/v1/oauth2/token';
 exports.MOEN_OAUTH_CLIENT_ID = '6qn9pep31dglq6ed4fvlq6rp5t';
-exports.MOEN_USER_AGENT = 'Smartwater-iOS-prod-3.45.0';
+exports.MOEN_USER_AGENT = 'Flo-Android';
 const DEFAULT_EXPIRY_SKEW_MS = 60_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 class MoenAuthError extends Error {
@@ -42,6 +42,7 @@ class MoenAuthService {
         const response = await this.postToken({
             username: this.email,
             password: this.password,
+            grant_type: 'client_credentials',
             client_id: exports.MOEN_OAUTH_CLIENT_ID,
         });
         this.storeToken(response);
@@ -105,7 +106,12 @@ class MoenAuthService {
         if (typeof token.access_token !== 'string' || !token.access_token) {
             throw new MoenAuthError('Moen authentication returned no access token; the account may require an OTP challenge.');
         }
-        const expiresIn = typeof token.expires_in === 'number' ? token.expires_in : 3600;
+        const parsedExpiresIn = typeof token.expires_in === 'number'
+            ? token.expires_in
+            : typeof token.expires_in === 'string'
+                ? Number(token.expires_in)
+                : Number.NaN;
+        const expiresIn = Number.isFinite(parsedExpiresIn) ? parsedExpiresIn : 3600;
         this.accessToken = token.access_token;
         this.refreshToken = typeof token.refresh_token === 'string'
             ? token.refresh_token

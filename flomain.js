@@ -91,20 +91,18 @@ class FlobyMoen extends EventEmitter {
          if (!this.isLoggedIn()) {
             await this.refreshToken();
         }
-        // SSO tokens do not contain the legacy Flo user id, so discovery starts at /users/me.
-        var url = FLO_V2_API_BASE + "/users/me?expand=locations";
+        // Migrated accounts resolve their Flo user through Moen sync, then list locations.
+        var url = FLO_V2_API_BASE + "/moen/sync/me";
         this.log.debug("discoverDevices:  " + url);
         try {
-            // Get devices at location 
-            const locations_info = { data: await this.client.get('/users/me?expand=locations') };
+            const locations_info = { data: await this.client.getLocations() };
             // Get each device at each location
-            for (var i = 0; i < locations_info.data.locations.length; i++) {
-                    const location = locations_info.data.locations[i];
-                    const locationId = typeof location === 'object' ? location.id : location;
+            for (var i = 0; i < locations_info.data.length; i++) {
+                    const location = locations_info.data[i];
+                    const locationId = location.id;
                     // Store location for future use
                     this.flo_locations[i] = locationId;
-                    const locationInfo = await this.client.get(`/locations/${encodeURIComponent(locationId)}?expand=devices`);
-                    const locationDevices = locationInfo.devices || location.devices || [];
+                    const locationDevices = location.devices || [];
                     // for each location get devices
                     for (var z = 0; z < locationDevices.length; z++) {
                         const deviceReference = locationDevices[z];

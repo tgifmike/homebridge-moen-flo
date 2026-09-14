@@ -10,6 +10,10 @@ export interface FloDevice extends Record<string, unknown> {
         [key: string]: unknown;
     };
 }
+export interface FloLocation extends Record<string, unknown> {
+    id: string;
+    devices?: unknown[];
+}
 export declare class FloApiError extends Error {
     readonly status?: number | undefined;
     constructor(message: string, status?: number | undefined);
@@ -24,6 +28,7 @@ export declare class FloApiClient {
     setValve(deviceId: string, target: ValveTarget): Promise<void>;
     get<T = Record<string, unknown>>(path: string): Promise<T>;
     post<T = Record<string, unknown>>(path: string, body?: Record<string, unknown>): Promise<T>;
+    getLocations(): Promise<FloLocation[]>;
     discoverDevices(): Promise<FloDevice[]>;
     private request;
 }

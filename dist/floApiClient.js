@@ -37,22 +37,25 @@ class FloApiClient {
     async post(path, body = {}) {
         return this.request('POST', path, body);
     }
+    async getLocations() {
+        const user = await this.get('/moen/sync/me');
+        if (typeof user.id !== 'string' || !user.id) {
+            throw new FloApiError('Flo API returned no user id from Moen account sync.');
+        }
+        const response = await this.get(`/locations?userId=${encodeURIComponent(user.id)}&expand=devices`);
+        const locations = Array.isArray(response)
+            ? response
+            : isRecord(response) && Array.isArray(response.items)
+                ? response.items
+                : [];
+        return locations.filter(isFloLocation);
+    }
     async discoverDevices() {
-        const user = await this.get('/users/me?expand=locations');
-        const locations = Array.isArray(user.locations) ? user.locations : [];
+        const locations = await this.getLocations();
         const devices = [];
         for (const location of locations) {
-            const locationId = typeof location === 'string'
-                ? location
-                : isRecord(location) && typeof location.id === 'string'
-                    ? location.id
-                    : undefined;
-            if (!locationId) {
-                continue;
-            }
-            const detail = await this.get(`/locations/${encodeURIComponent(locationId)}?expand=devices`);
-            if (Array.isArray(detail.devices)) {
-                for (const device of detail.devices) {
+            if (Array.isArray(location.devices)) {
+                for (const device of location.devices) {
                     if (isFloDevice(device) && (device.deviceType || device.valve)) {
                         devices.push(device);
                         continue;
@@ -122,6 +125,9 @@ function isRecord(value) {
     return typeof value === 'object' && value !== null;
 }
 function isFloDevice(value) {
+    return isRecord(value) && typeof value.id === 'string';
+}
+function isFloLocation(value) {
     return isRecord(value) && typeof value.id === 'string';
 }
 function errorMessage(error) {

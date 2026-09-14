@@ -15,6 +15,11 @@ export interface FloDevice extends Record<string, unknown> {
   };
 }
 
+export interface FloLocation extends Record<string, unknown> {
+  id: string;
+  devices?: unknown[];
+}
+
 export class FloApiError extends Error {
   constructor(message: string, public readonly status?: number) {
     super(message);
@@ -55,28 +60,31 @@ export class FloApiClient {
     return this.request<T>('POST', path, body);
   }
 
+  async getLocations(): Promise<FloLocation[]> {
+    const user = await this.get<Record<string, unknown>>('/moen/sync/me');
+    if (typeof user.id !== 'string' || !user.id) {
+      throw new FloApiError('Flo API returned no user id from Moen account sync.');
+    }
+
+    const response = await this.get<unknown>(
+      `/locations?userId=${encodeURIComponent(user.id)}&expand=devices`,
+    );
+    const locations = Array.isArray(response)
+      ? response
+      : isRecord(response) && Array.isArray(response.items)
+        ? response.items
+        : [];
+
+    return locations.filter(isFloLocation);
+  }
+
   async discoverDevices(): Promise<FloDevice[]> {
-    const user = await this.get<Record<string, unknown>>('/users/me?expand=locations');
-    const locations = Array.isArray(user.locations) ? user.locations : [];
+    const locations = await this.getLocations();
     const devices: FloDevice[] = [];
 
     for (const location of locations) {
-      const locationId = typeof location === 'string'
-        ? location
-        : isRecord(location) && typeof location.id === 'string'
-          ? location.id
-          : undefined;
-
-      if (!locationId) {
-        continue;
-      }
-
-      const detail = await this.get<Record<string, unknown>>(
-        `/locations/${encodeURIComponent(locationId)}?expand=devices`,
-      );
-
-      if (Array.isArray(detail.devices)) {
-        for (const device of detail.devices) {
+      if (Array.isArray(location.devices)) {
+        for (const device of location.devices) {
           if (isFloDevice(device) && (device.deviceType || device.valve)) {
             devices.push(device);
             continue;
@@ -158,6 +166,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isFloDevice(value: unknown): value is FloDevice {
+  return isRecord(value) && typeof value.id === 'string';
+}
+
+function isFloLocation(value: unknown): value is FloLocation {
   return isRecord(value) && typeof value.id === 'string';
 }
 
