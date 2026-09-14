@@ -1,0 +1,153 @@
+import { MoenAuthError, MoenAuthService, MOEN_USER_AGENT } from './moenAuthService';
+
+export const FLO_API_BASE = 'https://api-gw.meetflo.com/api/v2';
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+
+type Fetch = typeof globalThis.fetch;
+type ValveTarget = 'open' | 'closed';
+
+export interface FloDevice extends Record<string, unknown> {
+  id: string;
+  deviceType?: string;
+  valve?: {
+    target?: ValveTarget;
+    [key: string]: unknown;
+  };
+}
+
+export class FloApiError extends Error {
+  constructor(message: string, public readonly status?: number) {
+    super(message);
+    this.name = 'FloApiError';
+  }
+}
+
+/** A single authenticated gateway for Flo v2 API traffic. */
+export class FloApiClient {
+  private readonly fetch: Fetch;
+
+  constructor(
+    private readonly auth: MoenAuthService,
+    fetchImplementation: Fetch = globalThis.fetch,
+    private readonly requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  ) {
+    this.fetch = fetchImplementation;
+  }
+
+  async getDevice(deviceId: string): Promise<FloDevice> {
+    return this.request<FloDevice>('GET', `/devices/${encodeURIComponent(deviceId)}`);
+  }
+
+  async setValve(deviceId: string, target: ValveTarget): Promise<void> {
+    await this.request('POST', `/devices/${encodeURIComponent(deviceId)}`, {
+      valve: { target },
+    });
+  }
+
+  async discoverDevices(): Promise<FloDevice[]> {
+    const user = await this.request<Record<string, unknown>>('GET', '/users/me?expand=locations');
+    const locations = Array.isArray(user.locations) ? user.locations : [];
+    const devices: FloDevice[] = [];
+
+    for (const location of locations) {
+      const locationId = typeof location === 'string'
+        ? location
+        : isRecord(location) && typeof location.id === 'string'
+          ? location.id
+          : undefined;
+
+      if (!locationId) {
+        continue;
+      }
+
+      const detail = await this.request<Record<string, unknown>>(
+        'GET',
+        `/locations/${encodeURIComponent(locationId)}?expand=devices`,
+      );
+
+      if (Array.isArray(detail.devices)) {
+        for (const device of detail.devices) {
+          if (isFloDevice(device) && (device.deviceType || device.valve)) {
+            devices.push(device);
+            continue;
+          }
+
+          const deviceId = typeof device === 'string'
+            ? device
+            : isFloDevice(device)
+              ? device.id
+              : undefined;
+
+          if (deviceId) {
+            devices.push(await this.getDevice(deviceId));
+          }
+        }
+      }
+    }
+
+    return devices;
+  }
+
+  private async request<T = Record<string, unknown>>(
+    method: 'GET' | 'POST',
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<T> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const token = await this.auth.getAccessToken();
+      let response: Response;
+
+      try {
+        response = await this.fetch(`${FLO_API_BASE}${path}`, {
+          method,
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`,
+            'User-Agent': MOEN_USER_AGENT,
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
+          },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(this.requestTimeoutMs),
+        });
+      } catch (error) {
+        throw new FloApiError(`Flo API request failed: ${errorMessage(error)}`);
+      }
+
+      if ((response.status === 401 || response.status === 403) && attempt === 0) {
+        this.auth.invalidateAccessToken(token);
+        continue;
+      }
+
+      const text = await response.text();
+      if (response.status === 401 || response.status === 403) {
+        throw new MoenAuthError(`Flo rejected the Moen access token with HTTP ${response.status}.`, response.status);
+      }
+      if (!response.ok) {
+        throw new FloApiError(`Flo API request failed with HTTP ${response.status}.`, response.status);
+      }
+      if (!text) {
+        return {} as T;
+      }
+
+      try {
+        return JSON.parse(text) as T;
+      } catch {
+        throw new FloApiError('Flo API returned non-JSON data.', response.status);
+      }
+    }
+
+    throw new FloApiError('Flo API retry loop ended unexpectedly.');
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isFloDevice(value: unknown): value is FloDevice {
+  return isRecord(value) && typeof value.id === 'string';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
