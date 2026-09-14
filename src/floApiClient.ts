@@ -35,17 +35,28 @@ export class FloApiClient {
   }
 
   async getDevice(deviceId: string): Promise<FloDevice> {
-    return this.request<FloDevice>('GET', `/devices/${encodeURIComponent(deviceId)}`);
+    return this.get<FloDevice>(`/devices/${encodeURIComponent(deviceId)}`);
   }
 
   async setValve(deviceId: string, target: ValveTarget): Promise<void> {
-    await this.request('POST', `/devices/${encodeURIComponent(deviceId)}`, {
+    await this.post(`/devices/${encodeURIComponent(deviceId)}`, {
       valve: { target },
     });
   }
 
+  async get<T = Record<string, unknown>>(path: string): Promise<T> {
+    return this.request<T>('GET', path);
+  }
+
+  async post<T = Record<string, unknown>>(
+    path: string,
+    body: Record<string, unknown> = {},
+  ): Promise<T> {
+    return this.request<T>('POST', path, body);
+  }
+
   async discoverDevices(): Promise<FloDevice[]> {
-    const user = await this.request<Record<string, unknown>>('GET', '/users/me?expand=locations');
+    const user = await this.get<Record<string, unknown>>('/users/me?expand=locations');
     const locations = Array.isArray(user.locations) ? user.locations : [];
     const devices: FloDevice[] = [];
 
@@ -60,8 +71,7 @@ export class FloApiClient {
         continue;
       }
 
-      const detail = await this.request<Record<string, unknown>>(
-        'GET',
+      const detail = await this.get<Record<string, unknown>>(
         `/locations/${encodeURIComponent(locationId)}?expand=devices`,
       );
 
@@ -93,6 +103,9 @@ export class FloApiClient {
     path: string,
     body?: Record<string, unknown>,
   ): Promise<T> {
+    if (!path.startsWith('/')) {
+      throw new FloApiError(`Flo API path must begin with '/': ${path}`);
+    }
     for (let attempt = 0; attempt < 2; attempt++) {
       const token = await this.auth.getAccessToken();
       let response: Response;
